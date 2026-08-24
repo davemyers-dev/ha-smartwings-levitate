@@ -1,3 +1,5 @@
+const LEVITATE_BLINDS_CARD_VERSION = "1.0.0";
+
 class LevitateBlindsCardEditor extends HTMLElement {
   constructor() {
     super();
@@ -558,5 +560,12 @@ window.customCards.push({
   type: "levitate-blinds-card",
   name: "Levitate Blinds Card",
   description: "A specialized card for Top-Down Bottom-Up and single-motor blinds.",
-  preview: true
+  preview: true,
+  documentationURL: "https://github.com/davemyers-dev/ha-smartwings-levitate"
 });
+
+console.info(
+  `%c LEVITATE-BLINDS-CARD %c v${LEVITATE_BLINDS_CARD_VERSION} `,
+  "color: white; background: #03a9f4; font-weight: 700;",
+  "color: #03a9f4; background: white; font-weight: 700;"
+);
