@@ -4,7 +4,7 @@ A premium, custom Lovelace card for Home Assistant specifically designed for **T
 
 Traditional cover cards in Home Assistant only support a single position slider, making TDBU blinds awkward to control. This card solves that by providing a unified, visual, and intuitive interface that mirrors the physical blinds.
 
-![Preview Placeholder](https://raw.githubusercontent.com/jlapenna/ha-smartwings-levitate/main/preview.png)
+![Preview Placeholder](https://raw.githubusercontent.com/davemyers-dev/ha-smartwings-levitate/main/preview.png)
 *(Note: Add a screenshot of the card to your repo and name it `preview.png`)*
 
 ## ✨ Features
@@ -19,13 +19,25 @@ Traditional cover cards in Home Assistant only support a single position slider,
 
 ## 📦 Installation
 
-### Option 1: HACS (Recommended)
+### Option 1: HACS Custom Repository (Recommended)
 1. Open **HACS** in your Home Assistant instance.
 2. Click the three dots in the top right corner and select **Custom repositories**.
-3. Add `https://github.com/jlapenna/ha-smartwings-levitate` and select the category **Lovelace**.
-4. Click **Add**.
-5. Search for **Levitate Blinds Card** in HACS and click **Download**.
-6. When prompted, reload your browser cache.
+3. In the **Repository** field enter:
+   ```
+   https://github.com/davemyers-dev/ha-smartwings-levitate
+   ```
+4. Set **Type** to **Dashboard** (this category was called *Lovelace* / *Plugin* in older HACS versions).
+5. Click **Add**, then close the dialog.
+6. Search for **Levitate Blinds Card** in HACS and open it.
+7. Click **Download** and confirm. HACS installs the card to
+   `/config/www/community/ha-smartwings-levitate/levitate-blinds-card.js` and registers the
+   Lovelace resource for you automatically.
+8. Reload your browser with a hard refresh (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+9. Add the card to a dashboard — it appears in the card picker as **Levitate Blinds Card**.
+
+> **Note:** This repository has no tagged GitHub releases, so HACS will offer the default
+> branch (`main`). If HACS does not show a version to download, enable **Show beta versions**
+> in the download dialog, or pick the `main` branch from the version dropdown.
 
 ### Option 2: Manual
 1. Download `levitate-blinds-card.js` from this repository.
