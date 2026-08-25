@@ -12,8 +12,34 @@ Traditional cover cards in Home Assistant only support a single position slider,
 - **Visual Editor Support:** Fully editable from the Home Assistant UI! No YAML required.
 - **True-to-Life Visualization:** A dynamic window graphic that shows the actual fabric moving up and down as you adjust the rails.
 - **Dual Independent Sliders:** Vertical sliders for both the Top Rail and Bottom Rail.
+- **Built for Touch:** Each rail has a 44 px finger-sized grab zone that owns the vertical gesture, so dragging a rail never scrolls the dashboard out from under you.
+- **Tap Actions:** Tap a rail for the more-info dialog (or any action you configure), tap the track to send the nearest rail there, tap a moving rail to stop it.
+- **Keyboard & Screen Reader Friendly:** Rails are focusable sliders with arrow-key control and live ARIA values.
 - **Group Support:** Works perfectly with Home Assistant Native Cover Groups to control an entire room's top or bottom rails simultaneously.
 - **Themeable:** Respects your Home Assistant theme variables (card background, primary colors, text colors).
+
+---
+
+## 👆 How the card is controlled
+
+| Gesture | What happens |
+| :--- | :--- |
+| **Drag a rail** | Moves that rail. The grab zone is 44 px tall and reaches past both sides of the track, so you do not have to hit the thin bar itself. A translucent ghost rail previews where the blind will end up; the command is sent when you let go. |
+| **Tap a rail** | Runs `tap_action` — the more-info dialog by default. |
+| **Tap a rail that is moving** | Stops that rail (`cover.stop_cover`). Disable with `stop_on_tap: false`. |
+| **Tap the track** | Sends the nearest rail to the spot you tapped. Disable with `tap_to_position: false`. |
+| **Tap the name** | Runs `tap_action` for the top entity (or the bottom one if no top is configured). |
+| **Swipe over the track** | Scrolls the dashboard, as normal. |
+| **Focus a rail + arrow keys** | `↑`/`↓` nudge by 1%, `PgUp`/`PgDn` by 10%, `Home`/`End` jump to fully up/down, `Enter` runs the tap action. |
+
+Rails cannot be dragged past each other, and the card holds the position you
+asked for for a few seconds so it does not snap back while the motor is still
+reporting its old position.
+
+> **Prefer to grab the blind anywhere?** Set `drag_anywhere: true` and a press
+> anywhere on the track grabs the nearest rail immediately. The trade-off is
+> that the browser then hands every vertical gesture over the card to the card,
+> so you cannot scroll the dashboard by swiping across it.
 
 ---
 
@@ -82,12 +108,33 @@ bottom_entity: cover.den_blinds_bottom_group
 
 ## 📊 Configuration Options
 
-| Name | Type | Requirement | Description |
+| Name | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `type` | string | **Required** | Must be `custom:levitate-blinds-card` |
-| `top_entity` | string | **Required** | The entity ID of your top rail motor. Must be a `cover` entity. |
-| `bottom_entity` | string | **Required** | The entity ID of your bottom rail motor. Must be a `cover` entity. |
-| `name` | string | Optional | Friendly name displayed at the top of the card. |
+| `top_entity` | string | — | The entity ID of your top rail motor. Must be a `cover` entity. Optional if `bottom_entity` is set. |
+| `bottom_entity` | string | — | The entity ID of your bottom rail motor. Must be a `cover` entity. Optional if `top_entity` is set. |
+| `name` | string | `Blind` | Friendly name displayed at the top of the card. |
+| `slim` | boolean | `false` | Compact layout for narrow dashboard columns. |
+| `height` | number | `200` (`150` slim) | Height of the track in pixels. A taller track means more travel per pixel — easier to place a rail precisely on a phone. |
+| `tap_action` | object | `{action: more-info}` | Action for a tap on a rail or on the name. Supports `more-info`, `toggle`, `navigate`, `url`, `perform-action` and `none`. |
+| `tap_to_position` | boolean | `true` | Tapping the track sends the nearest rail to that spot. |
+| `stop_on_tap` | boolean | `true` | Tapping a rail that is opening or closing stops it. |
+| `drag_anywhere` | boolean | `false` | Press anywhere on the track to grab the nearest rail. Prevents swipe-scrolling over the card. |
+
+### Actions
+
+```yaml
+type: custom:levitate-blinds-card
+name: Kitchen Window
+top_entity: cover.kitchen_blinds_top
+bottom_entity: cover.kitchen_blinds_bottom
+height: 260              # a taller track is easier to aim at on a phone
+tap_action:
+  action: perform-action
+  perform_action: scene.turn_on
+  target:
+    entity_id: scene.kitchen_morning
+```
 
 ---
 
@@ -98,8 +145,7 @@ This card automatically adapts to your active Home Assistant theme. If you want 
 - `--ha-card-background` / `--card-background-color`: The main background of the card.
 - `--primary-color`: The color of the "fabric" and the slider thumbs.
 - `--secondary-background-color`: The background color of the window frame/track.
-- `--primary-text-color`: The color of the main title.
-- `--secondary-text-color`: The color of the percentage labels.
+- `--primary-text-color`: The color of the main title and of the rails.
 - `--ha-card-border-radius`: The rounding of the card corners.
 
 ---
@@ -111,6 +157,16 @@ The card assumes your `cover` entities use a standard 0-100 `current_position` a
 * `0%` means the rail is fully at the **bottom** (floor).
 
 When you slide the Top rail down, it sends a `set_cover_position` command to lower the percentage. When you slide the Bottom rail up, it increases the percentage. The blue "fabric" is dynamically drawn between the two rail coordinates.
+
+### Why dragging used to fight with scrolling
+
+Touch browsers decide who owns a vertical gesture the moment your finger lands,
+based on the `touch-action` of the element you touched. Earlier versions marked
+the rails `pan-y` — which tells the browser "vertical drags here belong to the
+page" — so the dashboard scrolled and the card was handed a `pointercancel`. The
+rails now sit inside 44 px hit zones marked `touch-action: none`, so a gesture
+that starts on a rail belongs to the card and nothing else can take it away. The
+rest of the track keeps `pan-y`, which is what leaves the dashboard scrollable.
 
 ---
 
