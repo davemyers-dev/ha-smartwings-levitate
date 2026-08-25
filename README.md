@@ -1,6 +1,17 @@
 # Levitate Blinds Card
 
-A premium, custom Lovelace card for Home Assistant specifically designed for **Top-Down Bottom-Up (TDBU)** blinds, such as the Smartwings Levitate series. 
+Premium, custom Lovelace cards for Home Assistant blinds — one built for
+**Top-Down Bottom-Up (TDBU)** blinds such as the Smartwings Levitate series, and
+a matching one for ordinary up/down blinds so a whole house of blinds looks like
+one set of controls.
+
+| Card | Use it for |
+| :--- | :--- |
+| `custom:levitate-blinds-card` | TDBU blinds — a top rail and a bottom rail, independently positioned. |
+| `custom:levitate-shade-card` | A plain up/down blind or roller shade — one motor, one entity. |
+
+Both ship in the same file, so installing once gives you both in the card
+picker. They share the same visuals, gestures, options and theming.
 
 Traditional cover cards in Home Assistant only support a single position slider, making TDBU blinds awkward to control. This card solves that by providing a unified, visual, and intuitive interface that mirrors the physical blinds.
 
@@ -12,6 +23,7 @@ Traditional cover cards in Home Assistant only support a single position slider,
 - **Visual Editor Support:** Fully editable from the Home Assistant UI! No YAML required.
 - **True-to-Life Visualization:** A dynamic window graphic that shows the actual fabric moving up and down as you adjust the rails.
 - **Dual Independent Sliders:** Vertical sliders for both the Top Rail and Bottom Rail.
+- **A Matching Card for Ordinary Blinds:** Plain up/down blinds get the same look and the same gestures, so mixed rooms stay consistent.
 - **Built for Touch:** Each rail has a 44 px finger-sized grab zone that owns the vertical gesture, so dragging a rail never scrolls the dashboard out from under you.
 - **Tap Actions:** Tap a rail for the more-info dialog (or any action you configure), tap the track to send the nearest rail there, tap a moving rail to stop it.
 - **Keyboard & Screen Reader Friendly:** Rails are focusable sliders with arrow-key control and live ARIA values.
@@ -35,6 +47,16 @@ Traditional cover cards in Home Assistant only support a single position slider,
 Rails cannot be dragged past each other, and the card holds the position you
 asked for for a few seconds so it does not snap back while the motor is still
 reporting its old position.
+
+On a plain up/down blind the same gestures apply to its single rail — the moving
+edge of the fabric.
+
+**Blinds that only open and close.** If a cover does not support
+`set_cover_position`, there is nowhere to drag to, so the card adapts: it draws
+the blind fully open or fully closed from the entity state, presents the rail as
+a button rather than a slider (including to screen readers), and a tap opens or
+closes it — or stops it while it is moving. Set `tap_action` explicitly if you
+would rather have that tap do something else.
 
 > **Prefer to grab the blind anywhere?** Set `drag_anywhere: true` and a press
 > anywhere on the track grabs the nearest rail immediately. The trade-off is
@@ -80,13 +102,37 @@ reporting its old position.
 
 Add the card to your dashboard using the manual YAML editor.
 
-### Basic Single Blind
+### Basic TDBU Blind
 
 ```yaml
 type: custom:levitate-blinds-card
 name: Kitchen Window
 top_entity: cover.kitchen_blinds_top
 bottom_entity: cover.kitchen_blinds_bottom
+```
+
+### A Plain Up/Down Blind
+
+One motor, one entity — the matching card for roller blinds, cellular shades and
+anything else that just goes up and down:
+
+```yaml
+type: custom:levitate-shade-card
+name: Landing Blind
+entity: cover.landing_blind
+```
+
+The card uses Home Assistant's usual cover scale, where `100` is fully open and
+`0` is fully closed. The fabric is drawn hanging from the top of the window with
+the rail at its bottom edge, which is how a roller blind hangs. If yours instead
+rises from the window sill, add `fabric_from: bottom` and the drawing flips to
+match — the position numbers stay exactly the same.
+
+```yaml
+type: custom:levitate-shade-card
+name: Bathroom
+entity: cover.bathroom_blind
+fabric_from: bottom
 ```
 
 ### Room Group Control (Advanced)
@@ -108,15 +154,30 @@ bottom_entity: cover.den_blinds_bottom_group
 
 ## 📊 Configuration Options
 
+### `custom:levitate-blinds-card` (TDBU)
+
 | Name | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `type` | string | **Required** | Must be `custom:levitate-blinds-card` |
 | `top_entity` | string | — | The entity ID of your top rail motor. Must be a `cover` entity. Optional if `bottom_entity` is set. |
 | `bottom_entity` | string | — | The entity ID of your bottom rail motor. Must be a `cover` entity. Optional if `top_entity` is set. |
+
+### `custom:levitate-shade-card` (single motor)
+
+| Name | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
+| `type` | string | **Required** | Must be `custom:levitate-shade-card` |
+| `entity` | string | **Required** | The entity ID of the blind. Must be a `cover` entity. |
+| `fabric_from` | string | `top` | Which edge the fabric is anchored to: `top` for a roller or standard blind, `bottom` for one that rises from the sill. Only changes the drawing — positions stay on Home Assistant's scale. |
+
+### Shared by both cards
+
+| Name | Type | Default | Description |
+| :--- | :---: | :---: | :--- |
 | `name` | string | `Blind` | Friendly name displayed at the top of the card. |
 | `slim` | boolean | `false` | Compact layout for narrow dashboard columns. |
 | `height` | number | `200` (`150` slim) | Height of the track in pixels. A taller track means more travel per pixel — easier to place a rail precisely on a phone. |
-| `tap_action` | object | `{action: more-info}` | Action for a tap on a rail or on the name. Supports `more-info`, `toggle`, `navigate`, `url`, `perform-action` and `none`. |
+| `tap_action` | object | `{action: more-info}` | Action for a tap on a rail or on the name. Supports `more-info`, `toggle`, `navigate`, `url`, `perform-action` and `none`. On a cover without position support, leaving this unset makes a tap open/close instead. |
 | `tap_to_position` | boolean | `true` | Tapping the track sends the nearest rail to that spot. |
 | `stop_on_tap` | boolean | `true` | Tapping a rail that is opening or closing stops it. |
 | `drag_anywhere` | boolean | `false` | Press anywhere on the track to grab the nearest rail. Prevents swipe-scrolling over the card. |
@@ -152,11 +213,19 @@ This card automatically adapts to your active Home Assistant theme. If you want 
 
 ## 🛠️ How it Works
 
-The card assumes your `cover` entities use a standard 0-100 `current_position` attribute where:
+The TDBU card assumes each of your two `cover` entities reports where its rail
+sits, using the standard 0-100 `current_position` attribute:
 * `100%` means the rail is fully at the **top** (ceiling).
 * `0%` means the rail is fully at the **bottom** (floor).
 
 When you slide the Top rail down, it sends a `set_cover_position` command to lower the percentage. When you slide the Bottom rail up, it increases the percentage. The blue "fabric" is dynamically drawn between the two rail coordinates.
+
+The single-motor card instead uses the ordinary cover meaning of position —
+`100%` is open, `0%` is closed — because that is what a normal blind reports. It
+draws one rail at the moving edge of the fabric and fills in the covered part of
+the window behind it. With `fabric_from: bottom` the drawing is mirrored, and
+the card mirrors the numbers with it, so what it sends to Home Assistant is
+always on Home Assistant's own scale.
 
 ### Why dragging used to fight with scrolling
 

@@ -1,4 +1,4 @@
-const LEVITATE_BLINDS_CARD_VERSION = "1.1.0";
+const LEVITATE_BLINDS_CARD_VERSION = "1.2.0";
 
 const HIT_SIZE = 44;        // px - minimum comfortable touch target
 const DRAG_THRESHOLD = 3;   // px - movement before a press becomes a drag
@@ -7,6 +7,7 @@ const OPTIMISTIC_MS = 4000; // ms - ignore incoming state right after we command
 const KEY_COMMIT_MS = 400;  // ms - debounce for keyboard adjustments
 
 const DEFAULT_TAP_ACTION = { action: "more-info" };
+const SUPPORT_SET_POSITION = 4;   // cover.CoverEntityFeature.SET_POSITION
 
 function fireEvent(node, type, detail, options = {}) {
   const event = new CustomEvent(type, {
@@ -19,20 +20,109 @@ function fireEvent(node, type, detail, options = {}) {
   return event;
 }
 
-class LevitateBlindsCardEditor extends HTMLElement {
+// Options every card in this file shares. `noun` is what the card calls the
+// thing that moves, so the labels read naturally for blinds and for shades.
+function commonEditorFields(noun) {
+  return [
+    {
+      id: 'height', type: 'number', label: 'Track Height (px)',
+      min: 90, max: 600, step: 10, placeholder: '200 (150 in slim mode)',
+      hint: `A taller track makes ${noun} easier to hit and to place precisely.`,
+    },
+    {
+      id: 'tap_action', type: 'action', label: 'Tap Action',
+      hint: 'Use YAML for navigate, url or perform-action.',
+    },
+    {
+      id: 'tap_to_position', type: 'checkbox', default: true,
+      label: `Tap the track to move ${noun} there`,
+    },
+    {
+      id: 'stop_on_tap', type: 'checkbox', default: true,
+      label: `Tap ${noun} while it is moving to stop it`,
+    },
+    {
+      id: 'drag_anywhere', type: 'checkbox', default: false,
+      label: 'Drag from anywhere on the track',
+      hint: 'The dashboard can no longer be scrolled by swiping over this card.',
+    },
+    { id: 'slim', type: 'checkbox', default: false, label: 'Slim Mode (Compact layout)' },
+  ];
+}
+
+const TAP_ACTION_CHOICES = [
+  { value: 'more-info', label: 'More info dialog' },
+  { value: 'toggle', label: 'Toggle (open / close)' },
+  { value: 'none', label: 'Nothing' },
+];
+
+const EDITOR_STYLE = `
+  .card-config {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .input-group {
+    display: flex;
+    flex-direction: column;
+  }
+  .checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  label {
+    font-size: 14px;
+    color: var(--secondary-text-color);
+    margin-bottom: 8px;
+  }
+  .checkbox-group label {
+    margin-bottom: 0;
+    cursor: pointer;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--secondary-text-color);
+    margin-top: 4px;
+    opacity: 0.8;
+  }
+  input[type="text"],
+  input[type="number"],
+  select {
+    padding: 10px;
+    border: 1px solid var(--divider-color);
+    border-radius: 4px;
+    background: var(--card-background-color);
+    color: var(--primary-text-color);
+    font-size: 14px;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+  }
+  input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--primary-color);
+  }
+`;
+
+// Shared editor. Subclasses only describe their fields; everything else -
+// rendering, focus-safe updates and building the config back up - is here.
+class LevitateEditorBase extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this._rendered = false;
   }
 
+  fields() { return []; }
+
   setConfig(config) {
     this._config = config || {};
-    if (!this._rendered) {
-      this.render();
-    } else {
-      this.syncValues();
-    }
+    if (!this._rendered) this.render();
+    else this.syncValues();
   }
 
   set hass(hass) {
@@ -45,6 +135,7 @@ class LevitateBlindsCardEditor extends HTMLElement {
   populateEntityList() {
     if (!this._rendered || !this._hass) return;
     const list = this.shadowRoot.getElementById('cover-entities');
+    if (!list) return;
     const covers = Object.keys(this._hass.states)
       .filter((id) => id.startsWith('cover.'))
       .sort();
@@ -52,176 +143,183 @@ class LevitateBlindsCardEditor extends HTMLElement {
     list.innerHTML = covers.map((id) => `<option value="${id}"></option>`).join('');
   }
 
+  valueOf(field) {
+    if (field.type === 'action') {
+      return (this._config.tap_action || DEFAULT_TAP_ACTION).action || 'more-info';
+    }
+    const value = this._config[field.id];
+    if (field.type === 'checkbox') {
+      return value === undefined ? !!field.default : !!value;
+    }
+    return value ?? '';
+  }
+
   // Push values back into the inputs without rebuilding the DOM - rebuilding
   // steals focus from whatever field the user is typing in.
   syncValues() {
     const active = this.shadowRoot.activeElement;
-    const set = (id, value) => {
-      const el = this.shadowRoot.getElementById(id);
+    this.fields().forEach((field) => {
+      const el = this.shadowRoot.getElementById(field.id);
       if (!el || el === active) return;
-      if (el.type === 'checkbox') el.checked = !!value;
-      else el.value = value ?? '';
-    };
-    set('name', this._config.name);
-    set('top_entity', this._config.top_entity);
-    set('bottom_entity', this._config.bottom_entity);
-    set('slim', this._config.slim);
-    set('height', this._config.height);
-    set('tap_to_position', this._config.tap_to_position !== false);
-    set('stop_on_tap', this._config.stop_on_tap !== false);
-    set('drag_anywhere', this._config.drag_anywhere);
-    set('tap_action', (this._config.tap_action || DEFAULT_TAP_ACTION).action || 'more-info');
+      if (field.type === 'checkbox') el.checked = this.valueOf(field);
+      else el.value = this.valueOf(field);
+    });
+  }
+
+  renderField(field) {
+    const hint = field.hint ? `<div class="hint">${field.hint}</div>` : '';
+
+    if (field.type === 'checkbox') {
+      return `
+        <div class="input-group">
+          <div class="checkbox-group">
+            <input type="checkbox" id="${field.id}" ${this.valueOf(field) ? 'checked' : ''}>
+            <label for="${field.id}">${field.label}</label>
+          </div>
+          ${hint}
+        </div>`;
+    }
+
+    if (field.type === 'action') {
+      const current = this.valueOf(field);
+      const options = TAP_ACTION_CHOICES.map((choice) =>
+        `<option value="${choice.value}" ${choice.value === current ? 'selected' : ''}>${choice.label}</option>`).join('');
+      return `
+        <div class="input-group">
+          <label for="${field.id}">${field.label}</label>
+          <select id="${field.id}">${options}</select>
+          ${hint}
+        </div>`;
+    }
+
+    if (field.type === 'select') {
+      const current = this.valueOf(field) || field.default;
+      const options = field.choices.map((choice) =>
+        `<option value="${choice.value}" ${choice.value === current ? 'selected' : ''}>${choice.label}</option>`).join('');
+      return `
+        <div class="input-group">
+          <label for="${field.id}">${field.label}</label>
+          <select id="${field.id}">${options}</select>
+          ${hint}
+        </div>`;
+    }
+
+    if (field.type === 'number') {
+      return `
+        <div class="input-group">
+          <label for="${field.id}">${field.label}</label>
+          <input type="number" id="${field.id}" min="${field.min}" max="${field.max}"
+                 step="${field.step}" value="${this.valueOf(field)}"
+                 placeholder="${field.placeholder || ''}">
+          ${hint}
+        </div>`;
+    }
+
+    // text and entity
+    const list = field.type === 'entity' ? 'list="cover-entities"' : '';
+    return `
+      <div class="input-group">
+        <label for="${field.id}">${field.label}</label>
+        <input type="text" id="${field.id}" ${list} value="${this.valueOf(field)}"
+               placeholder="${field.placeholder || ''}">
+        ${hint}
+      </div>`;
   }
 
   render() {
     if (!this._config) return;
+    const fields = this.fields();
 
     this.shadowRoot.innerHTML = `
-      <style>
-        .card-config {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-        }
-        .input-group {
-          display: flex;
-          flex-direction: column;
-        }
-        .checkbox-group {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        label {
-          font-size: 14px;
-          color: var(--secondary-text-color);
-          margin-bottom: 8px;
-        }
-        .checkbox-group label {
-          margin-bottom: 0;
-          cursor: pointer;
-        }
-        .hint {
-          font-size: 12px;
-          color: var(--secondary-text-color);
-          margin-top: 4px;
-          opacity: 0.8;
-        }
-        input[type="text"],
-        input[type="number"],
-        select {
-          padding: 10px;
-          border: 1px solid var(--divider-color);
-          border-radius: 4px;
-          background: var(--card-background-color);
-          color: var(--primary-text-color);
-          font-size: 14px;
-        }
-        input:focus, select:focus {
-          outline: none;
-          border-color: var(--primary-color);
-        }
-        input[type="checkbox"] {
-          width: 18px;
-          height: 18px;
-          cursor: pointer;
-          accent-color: var(--primary-color);
-        }
-      </style>
+      <style>${EDITOR_STYLE}</style>
       <div class="card-config">
         <datalist id="cover-entities"></datalist>
-        <div class="input-group">
-          <label for="name">Name (Optional)</label>
-          <input type="text" id="name" value="${this._config.name || ''}" placeholder="e.g. Kitchen Blinds">
-        </div>
-        <div class="input-group">
-          <label for="top_entity">Top Rail Entity (Optional if Bottom configured)</label>
-          <input type="text" id="top_entity" list="cover-entities" value="${this._config.top_entity || ''}" placeholder="cover.my_blind_top">
-        </div>
-        <div class="input-group">
-          <label for="bottom_entity">Bottom Rail Entity (Optional if Top configured)</label>
-          <input type="text" id="bottom_entity" list="cover-entities" value="${this._config.bottom_entity || ''}" placeholder="cover.my_blind_bottom">
-        </div>
-        <div class="input-group">
-          <label for="height">Track Height (px)</label>
-          <input type="number" id="height" min="90" max="600" step="10" value="${this._config.height ?? ''}" placeholder="${this._config.slim ? 150 : 200}">
-          <div class="hint">A taller track makes the rails easier to hit and to place precisely.</div>
-        </div>
-        <div class="input-group">
-          <label for="tap_action">Tap Action (on a rail)</label>
-          <select id="tap_action">
-            <option value="more-info">More info dialog</option>
-            <option value="toggle">Toggle (open / close)</option>
-            <option value="none">Nothing</option>
-          </select>
-          <div class="hint">Use YAML for <code>navigate</code>, <code>url</code> or <code>perform-action</code>.</div>
-        </div>
-        <div class="checkbox-group">
-          <input type="checkbox" id="tap_to_position" ${this._config.tap_to_position !== false ? 'checked' : ''}>
-          <label for="tap_to_position">Tap the track to move the nearest rail there</label>
-        </div>
-        <div class="checkbox-group">
-          <input type="checkbox" id="stop_on_tap" ${this._config.stop_on_tap !== false ? 'checked' : ''}>
-          <label for="stop_on_tap">Tap a moving rail to stop it</label>
-        </div>
-        <div class="input-group">
-          <div class="checkbox-group">
-            <input type="checkbox" id="drag_anywhere" ${this._config.drag_anywhere ? 'checked' : ''}>
-            <label for="drag_anywhere">Drag from anywhere on the track</label>
-          </div>
-          <div class="hint">Grabs the nearest rail wherever you touch the track. The dashboard can no longer be scrolled by swiping over this card.</div>
-        </div>
-        <div class="checkbox-group">
-          <input type="checkbox" id="slim" ${this._config.slim ? 'checked' : ''}>
-          <label for="slim">Slim Mode (Compact layout)</label>
-        </div>
+        ${fields.map((field) => this.renderField(field)).join('')}
       </div>
     `;
     this._rendered = true;
     this.populateEntityList();
 
-    const value = (id) => this.shadowRoot.getElementById(id).value.trim();
-    const checked = (id) => this.shadowRoot.getElementById(id).checked;
-
     const updateConfig = () => {
-      const height = parseInt(value('height'), 10);
-      const tapAction = value('tap_action');
+      const newConfig = { ...this._config };
 
-      const newConfig = {
-        ...this._config,
-        name: value('name'),
-        top_entity: value('top_entity'),
-        bottom_entity: value('bottom_entity'),
-        slim: checked('slim'),
-        tap_to_position: checked('tap_to_position'),
-        stop_on_tap: checked('stop_on_tap'),
-        drag_anywhere: checked('drag_anywhere'),
-      };
-
-      if (Number.isFinite(height)) newConfig.height = height;
-      else delete newConfig.height;
-
-      // Preserve any advanced tap_action authored in YAML; only swap the type.
-      const existing = this._config.tap_action || DEFAULT_TAP_ACTION;
-      newConfig.tap_action = existing.action === tapAction ? existing : { action: tapAction };
+      fields.forEach((field) => {
+        const el = this.shadowRoot.getElementById(field.id);
+        if (field.type === 'checkbox') {
+          newConfig[field.id] = el.checked;
+          return;
+        }
+        if (field.type === 'action') {
+          // Preserve any advanced action authored in YAML; only swap the type.
+          const existing = this._config.tap_action || DEFAULT_TAP_ACTION;
+          newConfig.tap_action = existing.action === el.value ? existing : { action: el.value };
+          return;
+        }
+        if (field.type === 'number') {
+          const value = parseInt(el.value, 10);
+          if (Number.isFinite(value)) newConfig[field.id] = value;
+          else delete newConfig[field.id];
+          return;
+        }
+        newConfig[field.id] = el.value.trim();
+      });
 
       this._config = newConfig;
-      const event = new Event("config-changed", { bubbles: true, composed: true });
+      const event = new Event('config-changed', { bubbles: true, composed: true });
       event.detail = { config: newConfig };
       this.dispatchEvent(event);
     };
 
-    ['name', 'top_entity', 'bottom_entity', 'height'].forEach((id) => {
-      this.shadowRoot.getElementById(id).addEventListener('input', updateConfig);
-    });
-    ['slim', 'tap_to_position', 'stop_on_tap', 'drag_anywhere', 'tap_action'].forEach((id) => {
-      this.shadowRoot.getElementById(id).addEventListener('change', updateConfig);
+    fields.forEach((field) => {
+      const el = this.shadowRoot.getElementById(field.id);
+      const eventName = (field.type === 'checkbox' || field.type === 'action' || field.type === 'select')
+        ? 'change' : 'input';
+      el.addEventListener(eventName, updateConfig);
     });
 
     this.syncValues();
   }
 }
+
+class LevitateBlindsCardEditor extends LevitateEditorBase {
+  fields() {
+    return [
+      { id: 'name', type: 'text', label: 'Name (Optional)', placeholder: 'e.g. Kitchen Blinds' },
+      {
+        id: 'top_entity', type: 'entity', placeholder: 'cover.my_blind_top',
+        label: 'Top Rail Entity (Optional if Bottom configured)',
+      },
+      {
+        id: 'bottom_entity', type: 'entity', placeholder: 'cover.my_blind_bottom',
+        label: 'Bottom Rail Entity (Optional if Top configured)',
+      },
+      ...commonEditorFields('the nearest rail'),
+    ];
+  }
+}
 customElements.define('levitate-blinds-card-editor', LevitateBlindsCardEditor);
+
+class LevitateShadeCardEditor extends LevitateEditorBase {
+  fields() {
+    return [
+      { id: 'name', type: 'text', label: 'Name (Optional)', placeholder: 'e.g. Landing Blind' },
+      {
+        id: 'entity', type: 'entity', placeholder: 'cover.landing_blind',
+        label: 'Blind Entity',
+      },
+      {
+        id: 'fabric_from', type: 'select', label: 'Fabric Hangs From', default: 'top',
+        choices: [
+          { value: 'top', label: 'Top - a roller or standard blind' },
+          { value: 'bottom', label: 'Bottom - the blind rises from the sill' },
+        ],
+        hint: 'Which edge of the window the fabric is anchored to.',
+      },
+      ...commonEditorFields('the blind'),
+    ];
+  }
+}
+customElements.define('levitate-shade-card-editor', LevitateShadeCardEditor);
 
 
 class LevitateBlindsCard extends HTMLElement {
@@ -239,7 +337,18 @@ class LevitateBlindsCard extends HTMLElement {
     this._drag = null;      // active rail drag
     this._press = null;     // pending press on the track (long-press or tap)
     this._keyTimer = null;
+    this._canPositionTop = true;
+    this._canPositionBottom = true;
   }
+
+  /* Seams for cards built on top of this one (see LevitateShadeCard). A rail
+   * position is always "how high the rail sits", 0 at the floor and 100 at the
+   * ceiling; a cover entity may number its own travel differently. */
+  toRailPosition(position) { return position; }
+  fromRailPosition(position) { return position; }
+  railLabel(rail) { return rail === 'top' ? 'Top rail' : 'Bottom rail'; }
+  railValueText(rail, position) { return `${position}% from the bottom`; }
+  noEntityMessage() { return 'Please configure at least one blind entity.'; }
 
   static getConfigElement() {
     return document.createElement("levitate-blinds-card-editor");
@@ -413,6 +522,7 @@ class LevitateBlindsCard extends HTMLElement {
           transition: top 0.3s ease;
         }
         .hit:active { cursor: grabbing; }
+        .hit.no-position { cursor: pointer; }
         .hit:focus { outline: none; }
         .hit:focus-visible {
           outline: 2px solid var(--primary-color, #03a9f4);
@@ -591,6 +701,9 @@ class LevitateBlindsCard extends HTMLElement {
     if (!drag || e.pointerId !== drag.id) return;
 
     if (!drag.moved) {
+      // An open/close-only cover has nowhere to be dragged to, so the press
+      // never turns into a drag and stays a tap.
+      if (!this.canPosition(drag.rail)) return;
       if (Math.abs(e.clientY - drag.startY) < DRAG_THRESHOLD) return;
       drag.moved = true;
       this.beginDragVisuals(drag.rail);
@@ -702,6 +815,13 @@ class LevitateBlindsCard extends HTMLElement {
       this.haptic('medium');
       return;
     }
+
+    // With no position support a tap is the only control there is, so unless
+    // an action was asked for explicitly it opens and closes the cover.
+    if (!this.canPosition(rail) && !this.config.tap_action) {
+      this.toggleRail(rail);
+      return;
+    }
     this.runAction(this.config.tap_action, entity);
   }
 
@@ -713,13 +833,34 @@ class LevitateBlindsCard extends HTMLElement {
     const rail = this.pickRail(clientY);
     if (!rail || !this.entityFor(rail)) return;
 
+    if (!this.canPosition(rail)) {
+      this.handleRailTap(rail);
+      return;
+    }
+
     const rect = this.container.getBoundingClientRect();
     const y = Math.max(0, Math.min(clientY - rect.top, rect.height));
     this.commit(rail, this.clampPosition(rail, Math.round(100 - (y / rect.height) * 100)));
   }
 
+  toggleRail(rail) {
+    const entity = this.entityFor(rail);
+    if (!entity || !this._hass) return;
+    const state = this._hass.states[entity];
+    const closing = state && (state.state === 'open' || state.state === 'opening');
+    this._hass.callService('cover', closing ? 'close_cover' : 'open_cover', { entity_id: entity });
+    this.haptic('light');
+  }
+
   onRailKeyDown(e, rail) {
     if (!this.entityFor(rail)) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      this.handleRailTap(rail);
+      return;
+    }
+    if (!this.canPosition(rail)) return;
+
     const current = this.positionFor(rail);
     let next;
 
@@ -732,11 +873,6 @@ class LevitateBlindsCard extends HTMLElement {
       case 'PageDown': next = current - 10; break;
       case 'Home': next = 100; break;
       case 'End': next = 0; break;
-      case 'Enter':
-      case ' ':
-        e.preventDefault();
-        this.handleRailTap(rail);
-        return;
       default: return;
     }
 
@@ -770,7 +906,7 @@ class LevitateBlindsCard extends HTMLElement {
     if (!entity || !this._hass) return;
     this._hass.callService('cover', 'set_cover_position', {
       entity_id: entity,
-      position: position,
+      position: this.fromRailPosition(position),
     });
   }
 
@@ -828,7 +964,7 @@ class LevitateBlindsCard extends HTMLElement {
 
     if (!this.hasTop && !this.hasBottom) {
       this.container.style.display = 'none';
-      this.showError('Please configure at least one blind entity.');
+      this.showError(this.noEntityMessage());
       return;
     }
     this.container.style.display = 'block';
@@ -847,10 +983,15 @@ class LevitateBlindsCard extends HTMLElement {
     this.railBottom.classList.toggle('moving',
       !!bottomState && (bottomState.state === 'opening' || bottomState.state === 'closing'));
 
+    this._canPositionTop = !topState || this.supportsPosition(topState);
+    this._canPositionBottom = !bottomState || this.supportsPosition(bottomState);
+
     if (this.isDragging) return;
 
-    const realTop = topState ? (topState.attributes.current_position ?? 0) : 100;
-    const realBottom = bottomState ? (bottomState.attributes.current_position ?? 0) : 0;
+    const realTop = topState
+      ? (this.railPositionFromState(topState) ?? this.currentTopPos ?? 100) : 100;
+    const realBottom = bottomState
+      ? (this.railPositionFromState(bottomState) ?? this.currentBottomPos ?? 0) : 0;
 
     if (this.optimisticTimeout && Date.now() < this.optimisticTimeout) {
       this.currentTopPos = this.optimisticTop !== null ? this.optimisticTop : realTop;
@@ -875,6 +1016,27 @@ class LevitateBlindsCard extends HTMLElement {
     this.updateVisuals();
   }
 
+  // Some covers only open and close - there is nothing to drag towards.
+  supportsPosition(state) {
+    if (state.attributes.current_position !== null &&
+        state.attributes.current_position !== undefined) return true;
+    return !!((state.attributes.supported_features ?? 0) & SUPPORT_SET_POSITION);
+  }
+
+  canPosition(rail) {
+    return rail === 'top' ? this._canPositionTop : this._canPositionBottom;
+  }
+
+  // Returns null when the state says nothing useful (a cover without position
+  // support that is still moving), so the caller can keep what it has.
+  railPositionFromState(state) {
+    const position = state.attributes.current_position;
+    if (position !== null && position !== undefined) return this.toRailPosition(position);
+    if (state.state === 'closed') return this.toRailPosition(0);
+    if (state.state === 'open') return this.toRailPosition(100);
+    return null;
+  }
+
   showError(message) {
     this.errorMsg.innerText = message;
     this.errorMsg.style.display = 'block';
@@ -888,26 +1050,40 @@ class LevitateBlindsCard extends HTMLElement {
     const topY = this.hasTop ? (100 - (this.currentTopPos ?? 100)) : 0;
     const bottomY = this.hasBottom ? (100 - (this.currentBottomPos ?? 0)) : 100;
 
-    this.placeRail(this.railTop, this.hitTop, this.hasTop, topY, this.currentTopPos ?? 100);
-    this.placeRail(this.railBottom, this.hitBottom, this.hasBottom, bottomY, this.currentBottomPos ?? 0);
+    this.placeRail('top', this.railTop, this.hitTop, this.hasTop, topY, this.currentTopPos ?? 100);
+    this.placeRail('bottom', this.railBottom, this.hitBottom, this.hasBottom, bottomY, this.currentBottomPos ?? 0);
 
     const [minY, maxY] = this.fabricBounds(topY, bottomY);
     this.fabric.style.top = minY + "%";
     this.fabric.style.bottom = (100 - maxY) + "%";
   }
 
-  placeRail(rail, hit, enabled, y, position) {
+  placeRail(rail, railEl, hit, enabled, y, position) {
     if (!enabled) {
-      rail.style.display = 'none';
+      railEl.style.display = 'none';
       hit.style.display = 'none';
       return;
     }
-    rail.style.display = 'flex';
-    rail.style.top = y + '%';
+    railEl.style.display = 'flex';
+    railEl.style.top = y + '%';
     hit.style.display = 'block';
     hit.style.top = y + '%';
-    hit.setAttribute('aria-valuenow', String(position));
-    hit.setAttribute('aria-valuetext', `${position}% from the bottom`);
+    hit.setAttribute('aria-label', this.railLabel(rail));
+
+    if (this.canPosition(rail)) {
+      hit.classList.remove('no-position');
+      hit.setAttribute('role', 'slider');
+      hit.setAttribute('aria-valuemin', '0');
+      hit.setAttribute('aria-valuemax', '100');
+      hit.setAttribute('aria-valuenow', String(position));
+      hit.setAttribute('aria-valuetext', this.railValueText(rail, position));
+    } else {
+      // Nothing to slide: it is a button that opens and closes.
+      hit.classList.add('no-position');
+      hit.setAttribute('role', 'button');
+      ['aria-valuemin', 'aria-valuemax', 'aria-valuenow', 'aria-valuetext']
+        .forEach((attr) => hit.removeAttribute(attr));
+    }
   }
 
   fabricBounds(topY, bottomY) {
@@ -964,11 +1140,72 @@ class LevitateBlindsCard extends HTMLElement {
 }
 
 customElements.define('levitate-blinds-card', LevitateBlindsCard);
+
+
+/**
+ * The same card for an ordinary up/down blind: one motor, one entity, one rail
+ * at the edge of the fabric. It is the blinds card with a single rail, so both
+ * cards look and feel identical on a dashboard.
+ */
+class LevitateShadeCard extends LevitateBlindsCard {
+  static getConfigElement() {
+    return document.createElement("levitate-shade-card-editor");
+  }
+
+  static getStubConfig() {
+    return {
+      type: "custom:levitate-shade-card",
+      name: "Blind",
+      entity: "",
+      slim: false
+    };
+  }
+
+  setConfig(config) {
+    const entity = config.entity || '';
+    // A shade has one rail - the moving edge of the fabric. Fabric hanging from
+    // the top is bounded below by its rail, so it drives the bottom rail of the
+    // blinds card, and a blind that rises from the sill drives the top one.
+    const fromBottom = config.fabric_from === 'bottom';
+    super.setConfig({
+      ...config,
+      top_entity: fromBottom ? entity : '',
+      bottom_entity: fromBottom ? '' : entity,
+    });
+  }
+
+  // A blind reports the usual cover scale where 100 is open. That already
+  // matches rail height for fabric hanging from the top; for a blind that
+  // rises from the sill the two scales run in opposite directions.
+  toRailPosition(position) {
+    return this.config.fabric_from === 'bottom' ? 100 - position : position;
+  }
+
+  fromRailPosition(position) {
+    return this.config.fabric_from === 'bottom' ? 100 - position : position;
+  }
+
+  railLabel() { return this.config.name || 'Blind'; }
+
+  railValueText(rail, position) { return `${this.fromRailPosition(position)}% open`; }
+
+  noEntityMessage() { return 'Please configure a blind entity.'; }
+}
+
+customElements.define('levitate-shade-card', LevitateShadeCard);
+
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "levitate-blinds-card",
   name: "Levitate Blinds Card",
   description: "A specialized card for Top-Down Bottom-Up and single-motor blinds.",
+  preview: true,
+  documentationURL: "https://github.com/davemyers-dev/ha-smartwings-levitate"
+});
+window.customCards.push({
+  type: "levitate-shade-card",
+  name: "Levitate Blind Card",
+  description: "The Levitate card for an ordinary single-motor up/down blind or roller shade.",
   preview: true,
   documentationURL: "https://github.com/davemyers-dev/ha-smartwings-levitate"
 });
