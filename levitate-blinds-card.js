@@ -288,10 +288,12 @@ class LevitateBlindsCardEditor extends LevitateEditorBase {
       {
         id: 'top_entity', type: 'entity', placeholder: 'cover.my_blind_top',
         label: 'Top Rail Entity (Optional if Bottom configured)',
+        hint: 'The rail the fabric hangs BELOW, down towards the bottom rail.',
       },
       {
         id: 'bottom_entity', type: 'entity', placeholder: 'cover.my_blind_bottom',
         label: 'Bottom Rail Entity (Optional if Top configured)',
+        hint: 'The rail the fabric hangs ABOVE, up towards the top rail. An ordinary blind with one motor belongs here — or better, on the Levitate Blind Card.',
       },
       ...commonEditorFields('the nearest rail'),
     ];

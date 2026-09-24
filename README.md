@@ -159,8 +159,13 @@ bottom_entity: cover.den_blinds_bottom_group
 | Name | Type | Default | Description |
 | :--- | :---: | :---: | :--- |
 | `type` | string | **Required** | Must be `custom:levitate-blinds-card` |
-| `top_entity` | string | — | The entity ID of your top rail motor. Must be a `cover` entity. Optional if `bottom_entity` is set. |
-| `bottom_entity` | string | — | The entity ID of your bottom rail motor. Must be a `cover` entity. Optional if `top_entity` is set. |
+| `top_entity` | string | — | The entity ID of your top rail motor. Must be a `cover` entity. Optional if `bottom_entity` is set. The fabric is drawn hanging **below** this rail. |
+| `bottom_entity` | string | — | The entity ID of your bottom rail motor. Must be a `cover` entity. Optional if `top_entity` is set. The fabric is drawn **above** this rail. |
+
+> **One motor?** Use `custom:levitate-shade-card` below. On this card, an
+> ordinary blind put in `top_entity` is drawn upside down — the fabric hangs
+> below the top rail by design, so the window fills in as the blind *opens*.
+> `bottom_entity` is the one that matches a roller blind.
 
 ### `custom:levitate-shade-card` (single motor)
 
@@ -177,16 +182,18 @@ The card fills in the part of the window the blind is actually covering, so the
 fabric colour grows as the blind closes. If yours does the opposite, one of two
 things is happening:
 
-1. **The entity reports position backwards.** Home Assistant's convention is
+1. **It is on the TDBU card in `top_entity`.** That draws the fabric hanging
+   *below* the top rail, down to where the bottom rail would be — correct for a
+   top-down TDBU blind, upside down for a roller. This is the common one. Move
+   it to `custom:levitate-shade-card` with `entity:`, or, without changing
+   cards, to `bottom_entity`.
+2. **The entity reports position backwards.** Home Assistant's convention is
    `100` = open, `0` = closed, but some integrations report how far the blind
    has travelled down instead. Home Assistant can't tell either — it decides
    `open` vs `closed` purely from that number — so the whole UI is inverted, not
    just this card. Check by opening the entity's more-info dialog: if it says
-   100% while the blind is physically down, add `invert: true`.
-2. **It is on the TDBU card with a single `top_entity`.** There, the fabric is
-   drawn hanging *below* the top rail, down to where the bottom rail would be —
-   correct for a top-down TDBU blind, upside down for a roller. Use
-   `custom:levitate-shade-card` with `entity:` instead.
+   100% while the blind is physically down, add `invert: true`. If it says 0%,
+   the entity is fine and this is not your problem.
 
 ### Shared by both cards
 
