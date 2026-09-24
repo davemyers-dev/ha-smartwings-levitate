@@ -315,6 +315,11 @@ class LevitateShadeCardEditor extends LevitateEditorBase {
         ],
         hint: 'Which edge of the window the fabric is anchored to.',
       },
+      {
+        id: 'invert', type: 'checkbox', default: false,
+        label: 'Entity reports position backwards',
+        hint: 'Tick this if the blind shows as covered when it is really open. Some integrations report how far the blind has come down instead of how open it is.',
+      },
       ...commonEditorFields('the blind'),
     ];
   }
@@ -1174,20 +1179,29 @@ class LevitateShadeCard extends LevitateBlindsCard {
     });
   }
 
-  // A blind reports the usual cover scale where 100 is open. That already
-  // matches rail height for fabric hanging from the top; for a blind that
-  // rises from the sill the two scales run in opposite directions.
+  // A blind normally reports the usual cover scale where 100 is open, which is
+  // already rail height for fabric hanging from the top. Two things can put the
+  // entity's numbers the other way round: fabric that rises from the sill, and
+  // an integration that counts how far the blind has come down rather than how
+  // open it is (`invert`). Each flips the scale, so both together cancel out.
   toRailPosition(position) {
-    return this.config.fabric_from === 'bottom' ? 100 - position : position;
+    const upright = this.config.invert ? 100 - position : position;
+    return this.config.fabric_from === 'bottom' ? 100 - upright : upright;
   }
 
   fromRailPosition(position) {
-    return this.config.fabric_from === 'bottom' ? 100 - position : position;
+    const upright = this.config.fabric_from === 'bottom' ? 100 - position : position;
+    return this.config.invert ? 100 - upright : upright;
   }
 
   railLabel() { return this.config.name || 'Blind'; }
 
-  railValueText(rail, position) { return `${this.fromRailPosition(position)}% open`; }
+  // How open the window actually is, which is what a screen reader should hear -
+  // not the entity's own number, which `invert` exists to disagree with.
+  railValueText(rail, position) {
+    const open = this.config.fabric_from === 'bottom' ? 100 - position : position;
+    return `${open}% open`;
+  }
 
   noEntityMessage() { return 'Please configure a blind entity.'; }
 }

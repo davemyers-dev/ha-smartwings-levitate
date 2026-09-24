@@ -169,6 +169,24 @@ bottom_entity: cover.den_blinds_bottom_group
 | `type` | string | **Required** | Must be `custom:levitate-shade-card` |
 | `entity` | string | **Required** | The entity ID of the blind. Must be a `cover` entity. |
 | `fabric_from` | string | `top` | Which edge the fabric is anchored to: `top` for a roller or standard blind, `bottom` for one that rises from the sill. Only changes the drawing — positions stay on Home Assistant's scale. |
+| `invert` | boolean | `false` | Set this if the card draws the blind covered when it is really open. See below. |
+
+#### If the card looks inverted
+
+The card fills in the part of the window the blind is actually covering, so the
+fabric colour grows as the blind closes. If yours does the opposite, one of two
+things is happening:
+
+1. **The entity reports position backwards.** Home Assistant's convention is
+   `100` = open, `0` = closed, but some integrations report how far the blind
+   has travelled down instead. Home Assistant can't tell either — it decides
+   `open` vs `closed` purely from that number — so the whole UI is inverted, not
+   just this card. Check by opening the entity's more-info dialog: if it says
+   100% while the blind is physically down, add `invert: true`.
+2. **It is on the TDBU card with a single `top_entity`.** There, the fabric is
+   drawn hanging *below* the top rail, down to where the bottom rail would be —
+   correct for a top-down TDBU blind, upside down for a roller. Use
+   `custom:levitate-shade-card` with `entity:` instead.
 
 ### Shared by both cards
 
